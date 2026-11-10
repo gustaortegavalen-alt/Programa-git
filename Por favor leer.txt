@@ -1,0 +1,11 @@
+# Proyecto SmartBuild - Evidencia 79 (ADSO)
+**Autor:** Gustavo Andrés Ortega Valencia
+
+## Descripción del Proyecto
+SmartBuild es una aplicación web desarrollada con FastAPI y plantillas HTML dinámicas (Jinja2) que gestiona formularios con métodos GET y POST, cumpliendo con los estándares del ciclo de desarrollo de software y versionamiento en Git/GitHub.
+
+## Estructura del Repositorio y del ZIP:
+* **`backend/`**: Contiene la lógica del servidor en Python (`main.py`), las rutas con métodos `GET` y `POST`, los modelos Pydantic y el entorno virtual (`venv`).
+* **`frontend/`**: Contiene las interfaces de usuario, estilos y la estructura de los formularios HTML (`index.html`).
+* **`database/`**: Contiene los esquemas de bases de datos y scripts relacionales del proyecto.
+* **`enlace_repositorio.txt`**: Archivo ubicado en la raíz que enlaza directamente con este repositorio público en GitHub.

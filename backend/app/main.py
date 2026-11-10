@@ -4,15 +4,56 @@
 # Aprendiz: Gustavo Andrés Ortega Valencia - ADSO Ficha 3336152
 # =============================================================================
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, Depends, HTTPException, status, Request, Form
+from fastapi.responses import HTMLResponse
+from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 from typing import List, Optional
+import sqlite3
+import os
 
 app = FastAPI(
     title="SmartBuild API",
     description="API REST para cotización y validación de compatibilidad de componentes de PC",
     version="1.0.0"
 )
+
+# -----------------------------------------------------------------------------
+# Configuración de Base de Datos y Plantillas
+# -----------------------------------------------------------------------------
+DB_NAME = "database/smartbuild.db"
+
+templates = Jinja2Templates(directory="templates")
+
+def obtener_conexion_db():
+    # Asegurar que la carpeta 'database' exista de forma segura
+    os.makedirs(os.path.dirname(DB_NAME), exist_ok=True)
+    conexion = sqlite3.connect(DB_NAME)
+    conexion.row_factory = sqlite3.Row
+    try:
+        yield conexion
+    finally:
+        conexion.close()
+
+def inicializar_bd():
+    os.makedirs(os.path.dirname(DB_NAME), exist_ok=True)
+    conexion = sqlite3.connect(DB_NAME)
+    cursor = conexion.cursor()
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS componentes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            nombre TEXT NOT NULL,
+            categoria TEXT NOT NULL,
+            precio REAL NOT NULL,
+            ram_gb INTEGER
+        )
+    """)
+    conexion.commit()
+    conexion.close()
+
+@app.on_event("startup")
+def evento_inicio():
+    inicializar_bd()
 
 # -----------------------------------------------------------------------------
 # Modelos de Datos (Schemas con Pydantic)
@@ -36,6 +77,12 @@ class ResultadoCompatibilidad(BaseModel):
     potencia_fuente_watts: int
     alertas: List[str]
     mensajes_exito: List[str]
+
+class ComponenteEsquema(BaseModel):
+    nombre: str
+    categoria: str
+    precio: float
+    ram_gb: Optional[int] = None
 
 # -----------------------------------------------------------------------------
 # Endpoints de la API
@@ -78,7 +125,6 @@ def validar_compatibilidad(cpu: Componente, motherboard: Componente, ram: Compon
     if gpu:
         consumo_total += gpu.consumo_tdp_watts
 
-    # Agregar margen de seguridad recomendado (100W extra)
     consumo_con_margen = consumo_total + 100
     potencia_fuente = psu.potencia_watts or 0
 
@@ -95,25 +141,58 @@ def validar_compatibilidad(cpu: Componente, motherboard: Componente, ram: Compon
         alertas=alertas,
         mensajes_exito=mensajes_exito
     )
-from fastapi import Request, Form
-from fastapi.responses import HTMLResponse
-from fastapi.templating import Jinja2Templates
 
-# Configurar la carpeta de plantillas (asegúrate de apuntar a tu carpeta templates)
-templates = Jinja2Templates(directory="templates")
-
-# 1. Método GET: Muestra el formulario HTML en el navegador
+# Métodos para plantillas HTML
 @app.get("/formulario", response_class=HTMLResponse)
 async def mostrar_formulario(request: Request):
     return templates.TemplateResponse("index.html", {"request": request, "resultado": None})
 
-# 2. Método POST: Recibe los datos enviados desde el formulario HTML
 @app.post("/formulario", response_class=HTMLResponse)
 async def procesar_formulario(request: Request, cpu_modelo: str = Form(...), ram_gb: int = Form(...)):
-    # Aquí puedes procesar los datos o llamar a tu lógica de validación
     mensaje = f"Datos procesados con éxito para la CPU: {cpu_modelo} con {ram_gb}GB de RAM."
-    
     return templates.TemplateResponse("index.html", {
         "request": request, 
         "resultado": mensaje
     })
+
+# ==========================================
+# OPERACIONES CRUD CON SQLite
+# ==========================================
+
+@app.post("/api/componentes")
+def crear_componente_api(datos: ComponenteEsquema, db: sqlite3.Connection = Depends(obtener_conexion_db)):
+    cursor = db.cursor()
+    cursor.execute(
+        "INSERT INTO componentes (nombre, categoria, precio, ram_gb) VALUES (?, ?, ?, ?)",
+        (datos.nombre, datos.categoria, datos.precio, datos.ram_gb)
+    )
+    db.commit()
+    return {"mensaje": "Componente registrado correctamente en la base de datos"}
+
+@app.get("/api/componentes", response_model=List[dict])
+def consultar_componentes(db: sqlite3.Connection = Depends(obtener_conexion_db)):
+    cursor = db.cursor()
+    cursor.execute("SELECT * FROM componentes")
+    filas = cursor.fetchall()
+    return [dict(fila) for fila in filas]
+
+@app.put("/api/componentes/{componente_id}")
+def actualizar_componente(componente_id: int, datos: ComponenteEsquema, db: sqlite3.Connection = Depends(obtener_conexion_db)):
+    cursor = db.cursor()
+    cursor.execute(
+        "UPDATE componentes SET nombre = ?, categoria = ?, precio = ?, ram_gb = ? WHERE id = ?",
+        (datos.nombre, datos.categoria, datos.precio, datos.ram_gb, componente_id)
+    )
+    db.commit()
+    if cursor.rowcount == 0:
+        raise HTTPException(status_code=404, detail="Componente no encontrado")
+    return {"mensaje": f"Componente ID {componente_id} actualizado con éxito"}
+
+@app.delete("/api/componentes/{componente_id}")
+def eliminar_componente(componente_id: int, db: sqlite3.Connection = Depends(obtener_conexion_db)):
+    cursor = db.cursor()
+    cursor.execute("DELETE FROM componentes WHERE id = ?", (componente_id,))
+    db.commit()
+    if cursor.rowcount == 0:
+        raise HTTPException(status_code=404, detail="Componente no encontrado")
+    return {"mensaje": f"Componente ID {componente_id} eliminado correctamente"}
